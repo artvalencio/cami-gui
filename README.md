@@ -1,7 +1,7 @@
 # cami-gui
 Graphical User Interface for CaMI-Python: User-friendly way of measuring mutual information, transfer entropy, causal mutual information and directionality index
 
-![Layout of the software](https://github.com/artvalencio/cami-gui/blob/main/layout.jpg?raw=true)
+
 
 ------------------------------------------------------------------------------
 
