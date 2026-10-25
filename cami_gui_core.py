@@ -89,13 +89,16 @@ def compute_measures(x, y, n_symbols=2, symbolic_type='equal-divs', x_divs=None,
         raise ValueError('X and Y need the same number of divisions')
     params = dict(x_divs=x_divs, y_divs=y_divs, symbolic_type=symbolic_type, n_symbols=n_symbols,
                   symbolic_length=tuple(lengths), tau=tau, delay=delay, units=units)
-    results = cami.measures(x, y, **params)
+    results = cami.measures(x, y, **params)  # one pass for all six measures
     if n_surrogates:
+        # Y->X tests run with y as the cause: swapping the divisions and negating the
+        # delay pairs exactly the same samples as the X->Y call
         reverse = dict(params, x_divs=y_divs, y_divs=x_divs, delay=-delay)
         tests = [('mutual_info', 'mutual_info', x, y, params), ('cami_xy', 'cami', x, y, params),
                  ('cami_yx', 'cami', y, x, reverse), ('te_xy', 'transfer_entropy', x, y, params),
                  ('te_yx', 'transfer_entropy', y, x, reverse)]
         results['p_values'] = {}
+        # progress is reported over all five tests: test k covers [k*n, (k+1)*n)
         for k, (name, measure, a, b, kw) in enumerate(tests):
             report = None if progress is None else                 (lambda done, total, k=k: progress(k * n_surrogates + done, len(tests) * n_surrogates))
             results['p_values'][name] = cami.surrogate_test(a, b, measure=measure, n_surrogates=n_surrogates,
@@ -115,6 +118,8 @@ class Job:
     '''
 
     def __init__(self, func, *args, **kwargs):
+        # done/total/result/error are written by the worker thread and only read by
+        # the GUI thread (single attribute assignments, so no lock is needed)
         self.done, self.total = 0, 0
         self.result = self.error = None
         self._cancelled = threading.Event()
@@ -122,6 +127,7 @@ class Job:
         self._thread.start()
 
     def _progress(self, done, total):
+        # called by the work after each step: the place where cancellation takes effect
         if self._cancelled.is_set():
             raise Cancelled()
         self.done, self.total = done, total
@@ -169,6 +175,7 @@ def load_series(path, along, index, start=1):
         raise ValueError("along must be 'column' or 'row'")
     if ext in ('.csv', '.xls', '.xlsx') and index >= 1:
         reader = pd.read_csv if ext == '.csv' else pd.read_excel
+        # parse only the needed column (usecols) or row (skiprows + nrows)
         if along == 'column':
             table = reader(path, header=None, usecols=[index - 1])
         else:
@@ -176,7 +183,7 @@ def load_series(path, along, index, start=1):
             index = 1
         return select_series(table, along, 1 if along == 'column' else index, start)
     if ext == '.npy':
-        data = np.load(path, mmap_mode='r')
+        data = np.load(path, mmap_mode='r')  # memory-mapped: only the selection is read
         if data.ndim == 1:
             data = data[:, None]
         if not 1 <= index <= data.shape[1 if along == 'column' else 0]:

@@ -1,4 +1,8 @@
-numpy
-pandas
-Pillow
-cami @ git+https://github.com/artvalencio/cami-python
+# CaMI GUI dependencies (Tk comes with Python; on Linux install python3-tk)
+cami @ git+https://github.com/artvalencio/cami-python   # version 1.5.0 or later is required
+numpy>=1.20
+pandas>=1.1
+Pillow>=8.0
+# optional readers:
+# openpyxl      (Excel files)
+# tables        (HDF5 files)

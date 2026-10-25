@@ -1,3 +1,14 @@
+'''CaMI GUI: a Tk window to compute mutual information, Causal Mutual Information,
+transfer entropy and the directionality index of two time-series with cami-python.
+
+Run with:  python cami_gui.py
+
+The window (CamiApp) only gathers input and shows results; loading files,
+selecting series and computing the measures happen in cami_gui_core, which is
+independent of Tk and tested on its own. Significance tests (surrogate data)
+can take seconds, so they run in a background Job while the window polls its
+progress.
+'''
 from tkinter import *
 from tkinter.ttk import *
 from tkinter import filedialog as fd
@@ -16,6 +27,7 @@ class CamiApp:
     '''Main window of the CaMI graphical user interface.'''
 
     def __init__(self, master):
+        '''Creates the window's variables and widgets inside the Tk root `master`.'''
         self.master=master
         master.title("CaMI")
         #data and file names
@@ -48,6 +60,8 @@ class CamiApp:
         self.build_widgets()
 
     def build_widgets(self):
+        '''Lays out the main window: data loading, encoding, symbolic lengths, tau,
+        delay, units, significance and the Calculate button (grid rows top to bottom).'''
         master=self.master
         #setting main window widgets
         self.img = ImageTk.PhotoImage(Image.open(os.path.join(HERE,"cami_ico.gif")))
@@ -98,6 +112,8 @@ class CamiApp:
 
     #function to load data
     def load_data(self,x_or_y):
+        '''Asks for a data file for X or Y, keeps a preview of its first rows and opens
+        the table window where the row/column holding the series is chosen.'''
         path=fd.askopenfilename(title='Load Data',filetypes=FILE_TYPES)
         if not path:
             return
@@ -112,6 +128,8 @@ class CamiApp:
 
     #function to create a new window
     def pop_table(self,df,x_or_y):
+        '''Shows the preview of a loaded table and asks where the series is (row or
+        column, and the first numeric entry); OK reads that series from the file.'''
         newWindow=Toplevel(self.master)
         newWindow.title("Select data")
         newWindow.geometry("650x430")
@@ -160,6 +178,8 @@ class CamiApp:
 
     #function that calculates CaMI
     def calc_cami(self):
+        '''Reads the parameters and computes the measures: right away without
+        significance tests, or in a background Job (with a progress window) with them.'''
         if self.job is not None:
             return  #a calculation is already running
         try:
@@ -189,6 +209,7 @@ class CamiApp:
         self.show_results(results)
 
     def open_progress_window(self):
+        '''Small window with a progress bar and a Cancel button for the background job.'''
         window=self.progress_window=Toplevel(self.master)
         window.title("Calculating")
         Label(window,text="Significance tests (surrogate data)").grid(row=0,column=0,padx=10,pady=(10,5))
@@ -198,11 +219,14 @@ class CamiApp:
         window.protocol("WM_DELETE_WINDOW",self.cancel_job)
 
     def cancel_job(self):
+        '''Asks the background job to stop (it stops at its next progress report).'''
         if self.job is not None:
             self.job.cancel()
 
     def poll_job(self):
         '''Updates the progress bar; shows the results (or error) when the job ends.'''
+        #Tk is not thread-safe: the worker never touches widgets; this method runs on the
+        #GUI thread every 100 ms (master.after) and does all the updates
         job=self.job
         if job is None:
             return
@@ -225,6 +249,7 @@ class CamiApp:
 
     #save the last results to a CSV file
     def export_results(self):
+        '''Saves the last results (and p-values, if computed) to a CSV file.'''
         if self.last_results is None:
             showerror(title="Error",message="Calculate the measures first")
             return
@@ -234,6 +259,7 @@ class CamiApp:
 
     #display results in new window
     def show_results(self,results):
+        '''Opens the results window (with p-values when significance tests were run).'''
         p_values=results.get('p_values')
 
         def fmt(name):
@@ -266,6 +292,7 @@ class CamiApp:
 
 
 def main():
+    '''Starts the GUI.'''
     master=Tk()
     CamiApp(master)
     master.mainloop()
