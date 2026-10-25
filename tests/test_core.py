@@ -217,6 +217,7 @@ def test_load_series_other_formats(tmp_path, suffix):
     np.testing.assert_allclose(core.preview_table(path).values, values)
 
 
+@pytest.mark.slow
 def test_preview_and_column_reading_are_fast(big_csv):
     import time
     path, __ = big_csv
@@ -229,6 +230,7 @@ def test_preview_and_column_reading_are_fast(big_csv):
     assert full < time.perf_counter() - start
 
 
+@pytest.mark.slow
 def test_compute_measures_time(xy):
     import time
     x = np.random.default_rng(0).random(10**5)

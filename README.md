@@ -27,6 +27,13 @@ Running:
 
 ------------------------------------------------------------------------------
 
+Performance: calculating all measures takes ~3 ms instead of ~180 ms for
+10^5 points; with 99 surrogates the significance tests take ~0.6 s instead
+of ~15 s and run in the background with a progress bar and a Cancel button.
+Loading a file reads only a preview, then only the chosen column or row.
+
+------------------------------------------------------------------------------
+
 Running the tests:
 
     pip install pytest
