@@ -5,6 +5,9 @@ import os
 import numpy as np
 import pandas as pd
 
+SYMBOLIC_TYPES = ['equal-divs', 'equal-points', 'equal-growth', 'equal-growth-points',
+                  'equal-concavity', 'equal-concavity-points']
+
 READERS = {
     '.csv': lambda path: pd.read_csv(path, header=None),
     '.xls': lambda path: pd.read_excel(path, header=None),
@@ -71,8 +74,12 @@ def parse_divisions(text):
 
 
 def compute_measures(x, y, n_symbols=2, symbolic_type='equal-divs', x_divs=None, y_divs=None,
-                     lengths=(1, 1, 1), tau=1, delay=0, units='bits'):
-    '''Mutual information, CaMI, transfer entropy (both directions) and directionality index.'''
+                     lengths=(1, 1, 1), tau=1, delay=0, units='bits', n_surrogates=0, seed=None):
+    '''Mutual information, CaMI, transfer entropy (both directions) and directionality index.
+
+    tau=None selects tau automatically. With n_surrogates > 0, 'p_values' holds the
+    surrogate-test p-value of each measure.
+    '''
     import cami
     if len(x) != len(y):
         raise ValueError('X and Y must have the same length (X: %d, Y: %d)' % (len(x), len(y)))
@@ -80,9 +87,10 @@ def compute_measures(x, y, n_symbols=2, symbolic_type='equal-divs', x_divs=None,
         raise ValueError('X and Y need the same number of divisions')
     params = dict(x_divs=x_divs, y_divs=y_divs, symbolic_type=symbolic_type, n_symbols=n_symbols,
                   symbolic_length=tuple(lengths), tau=tau, delay=delay, units=units)
+    reverse = dict(params, x_divs=y_divs, y_divs=x_divs, delay=-delay)
     cami_xy, cami_yx = cami.cami(x, y, two_sided=True, **params)
     te_xy, te_yx = cami.transfer_entropy(x, y, two_sided=True, **params)
-    return {
+    results = {
         'mutual_info': cami.mutual_info(x, y, **params),
         'cami_xy': cami_xy,
         'cami_yx': cami_yx,
@@ -90,3 +98,23 @@ def compute_measures(x, y, n_symbols=2, symbolic_type='equal-divs', x_divs=None,
         'te_yx': te_yx,
         'directionality': cami_xy - cami_yx,
     }
+    if n_surrogates:
+        def p_value(measure, a, b, kw):
+            return cami.surrogate_test(a, b, measure=measure, n_surrogates=n_surrogates, seed=seed, **kw)['p_value']
+        results['p_values'] = {
+            'mutual_info': p_value('mutual_info', x, y, params),
+            'cami_xy': p_value('cami', x, y, params),
+            'cami_yx': p_value('cami', y, x, reverse),
+            'te_xy': p_value('transfer_entropy', x, y, params),
+            'te_yx': p_value('transfer_entropy', y, x, reverse),
+        }
+    return results
+
+
+def export_results(results, path):
+    '''Writes the measures (and p-values, if computed) to a CSV file.'''
+    p_values = results.get('p_values', {})
+    table = pd.DataFrame([(name, value, p_values.get(name, np.nan))
+                          for name, value in results.items() if name != 'p_values'],
+                         columns=['measure', 'value', 'p_value'])
+    table.to_csv(path, index=False)

@@ -124,3 +124,36 @@ def test_length_mismatch_reports_both_lengths(xy):
     x, y = xy
     with pytest.raises(ValueError, match='3000.*2990'):
         core.compute_measures(x, y[:2990])
+
+
+# --- features ----------------------------------------------------------------
+
+def test_every_symbolic_type_is_offered(xy):
+    assert core.SYMBOLIC_TYPES == ['equal-divs', 'equal-points', 'equal-growth', 'equal-growth-points',
+                                   'equal-concavity', 'equal-concavity-points']
+    for symbolic_type in core.SYMBOLIC_TYPES:
+        assert np.isfinite(core.compute_measures(*xy, symbolic_type=symbolic_type)['cami_xy'])
+
+
+def test_automatic_tau(xy):
+    x, y = xy
+    assert core.compute_measures(x, y, tau=None)['cami_xy'] == pytest.approx(cami.cami(x, y, tau=None))
+
+
+def test_significance_p_values(xy):
+    x, y = xy
+    res = core.compute_measures(x, y, n_surrogates=19, seed=0)
+    assert set(res['p_values']) == {'mutual_info', 'cami_xy', 'cami_yx', 'te_xy', 'te_yx'}
+    assert res['p_values']['cami_xy'] == pytest.approx(1 / 20)
+    assert res['p_values']['cami_yx'] > 0.05
+    assert 'p_values' not in core.compute_measures(x, y)
+
+
+def test_results_are_exported_to_csv(xy, tmp_path):
+    res = core.compute_measures(*xy, n_surrogates=4, seed=0)
+    path = tmp_path / 'results.csv'
+    core.export_results(res, str(path))
+    table = pd.read_csv(path, index_col='measure')
+    assert table.loc['cami_xy', 'value'] == pytest.approx(res['cami_xy'])
+    assert table.loc['te_yx', 'p_value'] == pytest.approx(res['p_values']['te_yx'])
+    assert table.loc['directionality', 'value'] == pytest.approx(res['directionality'])
