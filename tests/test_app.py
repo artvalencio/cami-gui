@@ -65,8 +65,15 @@ def table():
     return pd.DataFrame(np.arange(12, dtype=float).reshape(3, 4))
 
 
-def test_selecting_a_row(app, table):
-    app.data['x'] = table
+@pytest.fixture
+def table_file(table, tmp_path):
+    path = tmp_path / 'table.csv'
+    table.to_csv(path, header=False, index=False)
+    return str(path)
+
+
+def test_selecting_a_row(app, table, table_file):
+    app.files['x'].set(table_file)
     app.row_or_column.set(1)
     app.sel_data_row.set('2')
     app.sel_start.set('2')
@@ -74,8 +81,8 @@ def test_selecting_a_row(app, table):
     assert app.series['x'].tolist() == [5.0, 6.0, 7.0]
 
 
-def test_selecting_a_column(app, table):
-    app.data['y'] = table
+def test_selecting_a_column(app, table, table_file):
+    app.files['y'].set(table_file)
     app.row_or_column.set(2)
     app.sel_data_column.set('3')
     app.sel_start.set('1')
@@ -147,6 +154,8 @@ def test_significance_option(app, captured):
     app.significance.set(True)
     app.n_surrogates.set('19')
     app.calc_cami()
+    app.job.join(timeout=30)
+    app.poll_job()
     assert captured[-1]['n_surrogates'] == 19
 
 
@@ -173,3 +182,61 @@ def test_export_results(app, monkeypatch, tmp_path):
     app.calc_cami()
     app.export_results()
     assert pd.read_csv(path)['measure'].tolist()[:2] == ['mutual_info', 'cami_xy']
+
+
+@pytest.fixture
+def coupled_series(app):
+    import numpy as np
+    x = np.random.default_rng(0).random(3000)
+    app.series['x'], app.series['y'] = x, np.roll(x, 1)
+    return app
+
+
+def test_significance_runs_in_the_background_with_progress(coupled_series, monkeypatch):
+    app = coupled_series
+    shown = []
+    monkeypatch.setattr(app, 'show_results', shown.append)
+    app.significance.set(True)
+    app.n_surrogates.set('19')
+    app.calc_cami()
+    assert app.job is not None
+    assert app.progress_window.winfo_exists()
+    app.job.join(timeout=60)
+    app.poll_job()
+    assert app.job is None
+    assert shown and shown[0]['p_values']['cami_xy'] == pytest.approx(1 / 20)
+    assert app.last_results is shown[0]
+
+
+def test_significance_can_be_cancelled(coupled_series, monkeypatch):
+    import cami_gui
+    app = coupled_series
+    shown, errors = [], []
+    monkeypatch.setattr(app, 'show_results', shown.append)
+    monkeypatch.setattr(cami_gui, 'showerror', lambda **kw: errors.append(kw))
+    app.significance.set(True)
+    app.n_surrogates.set('1000000')
+    app.calc_cami()
+    app.cancel_job()
+    job = app.job
+    job.join(timeout=60)
+    app.poll_job()
+    assert job.finished and shown == [] and errors == []
+    assert app.job is None
+
+
+def test_loading_keeps_only_a_preview(app, tmp_path, monkeypatch):
+    import numpy as np
+    import pandas as pd
+    import cami_gui
+    path = tmp_path / 'long.csv'
+    pd.DataFrame(np.random.rand(500, 3)).to_csv(path, header=False, index=False)
+    monkeypatch.setattr(cami_gui.fd, 'askopenfilename', lambda **kw: str(path))
+    monkeypatch.setattr(app, 'pop_table', lambda df, x_or_y: None)
+    app.load_data('x')
+    assert app.data['x'].shape == (50, 3)
+    app.row_or_column.set(2)
+    app.sel_data_column.set('2')
+    app.sel_start.set('1')
+    app.apply_selection('x')
+    assert len(app.series['x']) == 500

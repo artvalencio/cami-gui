@@ -43,6 +43,8 @@ class CamiApp:
         self.significance=BooleanVar(value=False)
         self.n_surrogates=StringVar(value='99')
         self.last_results=None
+        self.job=None              #background calculation (with significance tests)
+        self.progress_window=None
         self.build_widgets()
 
     def build_widgets(self):
@@ -100,7 +102,7 @@ class CamiApp:
         if not path:
             return
         try:
-            df=core.load_table(path)
+            df=core.preview_table(path)  #only the first rows; the chosen series is read later
         except Exception as error:
             showerror(title="Error", message=str(error))
             return
@@ -150,7 +152,7 @@ class CamiApp:
                 along,index='row',self.sel_data_row.get()
             else:
                 along,index='column',self.sel_data_column.get()
-            self.series[x_or_y]=core.select_series(self.data[x_or_y],along,int(index),int(self.sel_start.get()))
+            self.series[x_or_y]=core.load_series(self.files[x_or_y].get(),along,int(index),int(self.sel_start.get()))
         except Exception as error:
             showerror(title="Error",message=str(error))
             return False
@@ -158,6 +160,8 @@ class CamiApp:
 
     #function that calculates CaMI
     def calc_cami(self):
+        if self.job is not None:
+            return  #a calculation is already running
         try:
             if self.series['x'] is None or self.series['y'] is None:
                 raise ValueError('Load the X and Y data first')
@@ -165,17 +169,59 @@ class CamiApp:
             if self.div_type.get()==3:
                 x_divs=core.parse_divisions(self.xdiv_vals.get())
                 y_divs=core.parse_divisions(self.ydiv_vals.get())
-            results=core.compute_measures(self.series['x'],self.series['y'],n_symbols=int(self.n_symbols.get()),
-                                          symbolic_type=self.symbolic_type.get(),x_divs=x_divs,y_divs=y_divs,
-                                          lengths=(int(self.lxp.get()),int(self.lyp.get()),int(self.lyf.get())),
-                                          tau=None if self.auto_tau.get() else int(self.tau.get()),
-                                          delay=int(self.delay.get()),units=self.unit.get(),
-                                          n_surrogates=int(self.n_surrogates.get()) if self.significance.get() else 0)
+            n_surrogates=int(self.n_surrogates.get()) if self.significance.get() else 0
+            params=dict(n_symbols=int(self.n_symbols.get()),symbolic_type=self.symbolic_type.get(),
+                        x_divs=x_divs,y_divs=y_divs,
+                        lengths=(int(self.lxp.get()),int(self.lyp.get()),int(self.lyf.get())),
+                        tau=None if self.auto_tau.get() else int(self.tau.get()),
+                        delay=int(self.delay.get()),units=self.unit.get(),n_surrogates=n_surrogates)
+            if not n_surrogates:  #fast: computed right away
+                results=core.compute_measures(self.series['x'],self.series['y'],**params)
         except Exception as error:
             showerror(title="Error",message="Error when calculating CaMI: "+str(error))
             return
+        if n_surrogates:  #significance tests run in the background
+            self.job=core.Job(core.compute_measures,self.series['x'],self.series['y'],**params)
+            self.open_progress_window()
+            self.master.after(100,self.poll_job)
+            return
         self.last_results=results
         self.show_results(results)
+
+    def open_progress_window(self):
+        window=self.progress_window=Toplevel(self.master)
+        window.title("Calculating")
+        Label(window,text="Significance tests (surrogate data)").grid(row=0,column=0,padx=10,pady=(10,5))
+        self.progress_bar=Progressbar(window,length=260,mode='determinate',maximum=1)
+        self.progress_bar.grid(row=1,column=0,padx=10)
+        Button(window,text="Cancel",command=self.cancel_job).grid(row=2,column=0,pady=10)
+        window.protocol("WM_DELETE_WINDOW",self.cancel_job)
+
+    def cancel_job(self):
+        if self.job is not None:
+            self.job.cancel()
+
+    def poll_job(self):
+        '''Updates the progress bar; shows the results (or error) when the job ends.'''
+        job=self.job
+        if job is None:
+            return
+        if not job.finished:
+            if job.total:
+                self.progress_bar.configure(maximum=job.total,value=job.done)
+            self.master.after(100,self.poll_job)
+            return
+        self.job=None
+        if self.progress_window is not None:
+            self.progress_window.destroy()
+            self.progress_window=None
+        if isinstance(job.error,core.Cancelled):
+            return
+        if job.error is not None:
+            showerror(title="Error",message="Error when calculating CaMI: "+str(job.error))
+            return
+        self.last_results=job.result
+        self.show_results(job.result)
 
     #save the last results to a CSV file
     def export_results(self):

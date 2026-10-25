@@ -6,5 +6,13 @@
   "compute_measures N=1e5 L=(2,2,1)": {
    "time_ms": 177.83
   }
+ },
+ "final": {
+  "compute_measures + 99 surrogates": {
+   "time_ms": 603.07
+  },
+  "compute_measures N=1e5 L=(2,2,1)": {
+   "time_ms": 3.19
+  }
  }
 }
