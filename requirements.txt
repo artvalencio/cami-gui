@@ -1,0 +1,4 @@
+numpy
+pandas
+Pillow
+cami @ git+https://github.com/artvalencio/cami-python
