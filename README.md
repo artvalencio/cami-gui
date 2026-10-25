@@ -7,8 +7,33 @@ Graphical User Interface for CaMI-Python: User-friendly way of measuring mutual 
 
 Requirements:
 
-- CaMI package for Python:  pip install git+https://github.com/artvalencio/cami-python
-- Pillow: python3 -m pip install --upgrade Pillow
+- CaMI package for Python (version 1.5.0 or later):  pip install git+https://github.com/artvalencio/cami-python
+- numpy, pandas and Pillow
+
+All at once:  pip install -r requirements.txt
+
+------------------------------------------------------------------------------
+
+Running:
+
+    python cami_gui.py
+
+1. Load the X and Y data (csv, Excel, Stata, SAS, SPSS, npy, json or HDF5) and
+   choose the row or column holding each series and where its values start.
+2. Choose the partition (any automatic encoding, or your own divisions),
+   symbolic lengths, tau (or automatic tau), delay and units.
+3. Optionally tick the surrogate test to obtain p-values for each measure.
+4. Calculate; the results window can export the values to a CSV file.
+
+------------------------------------------------------------------------------
+
+Running the tests:
+
+    pip install pytest
+    pytest
+
+The logic that does not need a window lives in cami_gui_core.py; window tests
+are skipped automatically when no display is available.
 
 ------------------------------------------------------------------------------
 
