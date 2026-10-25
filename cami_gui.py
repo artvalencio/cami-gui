@@ -17,7 +17,6 @@ class CamiApp:
 
     def __init__(self, master):
         self.master=master
-        master.geometry("530x600")
         master.title("CaMI")
         #data and file names
         self.files={'x':StringVar(value=""),'y':StringVar(value="")}
@@ -36,9 +35,14 @@ class CamiApp:
         self.lxp=StringVar(value='1')
         self.lyp=StringVar(value='1')
         self.lyf=StringVar(value='1')
+        self.symbolic_type=StringVar(value=core.SYMBOLIC_TYPES[0])
         self.tau=StringVar(value='1')
+        self.auto_tau=BooleanVar(value=False)
         self.delay=StringVar(value='0')
         self.unit=StringVar()
+        self.significance=BooleanVar(value=False)
+        self.n_surrogates=StringVar(value='99')
+        self.last_results=None
         self.build_widgets()
 
     def build_widgets(self):
@@ -56,8 +60,8 @@ class CamiApp:
         Entry(master,textvariable=self.n_symbols,width=3).grid(row=5,column=1,sticky=W)
         Label(master,text="").grid(row=6,column=0,padx=10)
         Label(master,text="Partition divisions:").grid(row=7,column=0,sticky=W,padx=10)
-        Radiobutton(master,text="equal-sized divisions",variable=self.div_type,value=1).grid(row=7,column=1,sticky=W)
-        Radiobutton(master,text="divisions with same number of points",variable=self.div_type,value=2).grid(row=8,column=1,columnspan=4,sticky=W)
+        Radiobutton(master,text="automatic:",variable=self.div_type,value=1).grid(row=7,column=1,sticky=W)
+        Combobox(master,textvariable=self.symbolic_type,values=core.SYMBOLIC_TYPES,state='readonly',width=22).grid(row=7,column=2,columnspan=3,sticky=W)
         Radiobutton(master,text="other (separate with commas):",variable=self.div_type,value=3).grid(row=9,column=1,sticky=W)
         Label(master,text=" X divisions:").grid(row=9,column=2,sticky=W)
         Entry(master,textvariable=self.xdiv_vals,width=10).grid(row=9,column=3,sticky=W)
@@ -74,6 +78,7 @@ class CamiApp:
         Label(master,text="").grid(row=15,column=0)
         Label(master,text="Tau:").grid(row=16,column=0,sticky=W,padx=10)
         Entry(master,textvariable=self.tau,width=3).grid(row=16,column=1,sticky=W)
+        Checkbutton(master,text="automatic (first zero of autocorrelation)",variable=self.auto_tau).grid(row=16,column=2,columnspan=3,sticky=W)
         Label(master,text="").grid(row=17,column=0)
         Label(master,text="Transmission delay:").grid(row=18,column=0,sticky=W,padx=10)
         Entry(master,textvariable=self.delay,width=3).grid(row=18,column=1,sticky=W)
@@ -82,7 +87,12 @@ class CamiApp:
         self.unit_menu=OptionMenu(master,self.unit,optionlist[0],*optionlist)
         self.unit_menu.grid(row=20,column=1,sticky=W)
         Label(master,text="").grid(row=21,column=0)
-        Button(master,text="Calculate",command=self.calc_cami).grid(row=22,column=1,columnspan=2)
+        Label(master,text="Significance:").grid(row=22,column=0,sticky=W,padx=10)
+        Checkbutton(master,text="surrogate test with",variable=self.significance).grid(row=22,column=1,sticky=W)
+        Entry(master,textvariable=self.n_surrogates,width=5).grid(row=22,column=2,sticky=W)
+        Label(master,text="surrogates").grid(row=22,column=3,sticky=W)
+        Label(master,text="").grid(row=23,column=0)
+        Button(master,text="Calculate",command=self.calc_cami).grid(row=24,column=1,columnspan=2)
 
     #function to load data
     def load_data(self,x_or_y):
@@ -152,41 +162,61 @@ class CamiApp:
             if self.series['x'] is None or self.series['y'] is None:
                 raise ValueError('Load the X and Y data first')
             x_divs,y_divs=None,None
-            symb_type={1:'equal-divs',2:'equal-points'}.get(self.div_type.get(),'equal-divs')
             if self.div_type.get()==3:
                 x_divs=core.parse_divisions(self.xdiv_vals.get())
                 y_divs=core.parse_divisions(self.ydiv_vals.get())
             results=core.compute_measures(self.series['x'],self.series['y'],n_symbols=int(self.n_symbols.get()),
-                                          symbolic_type=symb_type,x_divs=x_divs,y_divs=y_divs,
+                                          symbolic_type=self.symbolic_type.get(),x_divs=x_divs,y_divs=y_divs,
                                           lengths=(int(self.lxp.get()),int(self.lyp.get()),int(self.lyf.get())),
-                                          tau=int(self.tau.get()),delay=int(self.delay.get()),units=self.unit.get())
+                                          tau=None if self.auto_tau.get() else int(self.tau.get()),
+                                          delay=int(self.delay.get()),units=self.unit.get(),
+                                          n_surrogates=int(self.n_surrogates.get()) if self.significance.get() else 0)
         except Exception as error:
             showerror(title="Error",message="Error when calculating CaMI: "+str(error))
             return
+        self.last_results=results
         self.show_results(results)
+
+    #save the last results to a CSV file
+    def export_results(self):
+        if self.last_results is None:
+            showerror(title="Error",message="Calculate the measures first")
+            return
+        path=fd.asksaveasfilename(title='Export results',defaultextension='.csv',filetypes=(('Comma-separated values','*.csv'),))
+        if path:
+            core.export_results(self.last_results,path)
 
     #display results in new window
     def show_results(self,results):
-        mi,dir_idx=results['mutual_info'],results['directionality']
-        cami_xy,cami_yx,te_xy,te_yx=results['cami_xy'],results['cami_yx'],results['te_xy'],results['te_yx']
+        p_values=results.get('p_values')
+
+        def fmt(name):
+            text=f"{results[name]:10.4f}"
+            if p_values:
+                text+=f" (p = {p_values[name]:.3f})"
+            return text
+
         resWindow=Toplevel(self.master)
         resWindow.title("Results")
-        resWindow.geometry("260x390")
         Label(resWindow,text="CaMI Results").grid(row=0,column=0,padx=10,pady=10)
         Label(resWindow,text="").grid(row=1,column=0)
         Label(resWindow,text="Mutual Information").grid(row=2,column=0,padx=10)
-        Label(resWindow,text=f"{mi:10.4f}").grid(row=3,column=0,padx=10)
+        Label(resWindow,text=fmt('mutual_info')).grid(row=3,column=0,padx=10)
         Label(resWindow,text="").grid(row=4,column=0)
         Label(resWindow,text="Causal Mutual Information (CaMI)").grid(row=5,column=0,padx=10)
-        Label(resWindow,text=f"X{ARROW} Y: {cami_xy:10.4f} \t Y{ARROW} X: {cami_yx:10.4f}").grid(row=6,column=0,padx=10)
-        Label(resWindow,text="").grid(row=7,column=0)
-        Label(resWindow,text="Transfer Entropy").grid(row=8,column=0,padx=10)
-        Label(resWindow,text=f"X{ARROW} Y: {te_xy:10.4f} \t Y{ARROW} X: {te_yx:10.4f}").grid(row=9,column=0,padx=10)
-        Label(resWindow,text="").grid(row=10,column=0)
-        Label(resWindow,text=f"Directionality Index X{ARROW} Y").grid(row=11,column=0,padx=10)
-        Label(resWindow,text=f"{dir_idx:10.4f}").grid(row=12,column=0,padx=10)
-        Label(resWindow,text="").grid(row=13,column=0)
-        Button(resWindow,text="OK",command=resWindow.destroy).grid(row=14,column=0,padx=10)
+        Label(resWindow,text=f"X{ARROW} Y: {fmt('cami_xy')}").grid(row=6,column=0,padx=10)
+        Label(resWindow,text=f"Y{ARROW} X: {fmt('cami_yx')}").grid(row=7,column=0,padx=10)
+        Label(resWindow,text="").grid(row=8,column=0)
+        Label(resWindow,text="Transfer Entropy").grid(row=9,column=0,padx=10)
+        Label(resWindow,text=f"X{ARROW} Y: {fmt('te_xy')}").grid(row=10,column=0,padx=10)
+        Label(resWindow,text=f"Y{ARROW} X: {fmt('te_yx')}").grid(row=11,column=0,padx=10)
+        Label(resWindow,text="").grid(row=12,column=0)
+        Label(resWindow,text=f"Directionality Index X{ARROW} Y").grid(row=13,column=0,padx=10)
+        Label(resWindow,text=f"{results['directionality']:10.4f}").grid(row=14,column=0,padx=10)
+        Label(resWindow,text="").grid(row=15,column=0)
+        Button(resWindow,text="Export CSV",command=self.export_results).grid(row=16,column=0,padx=10)
+        Button(resWindow,text="OK",command=resWindow.destroy).grid(row=17,column=0,padx=10,pady=(5,10))
+        return resWindow
 
 
 def main():

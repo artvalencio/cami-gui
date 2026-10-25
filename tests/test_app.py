@@ -106,3 +106,70 @@ def test_calculation_shows_results(app, monkeypatch):
     app.ydiv_vals.set('0.5')
     app.calc_cami()
     assert results == [cami_gui_core.compute_measures(x, np.roll(x, 1), x_divs=[0.5], y_divs=[0.5])]
+
+
+@pytest.fixture
+def captured(app, monkeypatch):
+    """Records the keyword arguments of compute_measures and skips the results window."""
+    import numpy as np
+    import cami_gui
+    calls = []
+
+    def fake_compute(x, y, **kwargs):
+        calls.append(kwargs)
+        return {'mutual_info': 0.0, 'cami_xy': 0.0, 'cami_yx': 0.0, 'te_xy': 0.0, 'te_yx': 0.0, 'directionality': 0.0}
+
+    monkeypatch.setattr(cami_gui.core, 'compute_measures', fake_compute)
+    monkeypatch.setattr(app, 'show_results', lambda results: None)
+    app.series['x'] = app.series['y'] = np.random.rand(100)
+    return calls
+
+
+def test_any_symbolic_type_can_be_chosen(app, captured):
+    app.div_type.set(1)
+    app.symbolic_type.set('equal-growth-points')
+    app.calc_cami()
+    assert captured[-1]['symbolic_type'] == 'equal-growth-points'
+    assert captured[-1]['x_divs'] is None
+
+
+def test_automatic_tau_option(app, captured):
+    app.calc_cami()
+    assert captured[-1]['tau'] == 1
+    app.auto_tau.set(True)
+    app.calc_cami()
+    assert captured[-1]['tau'] is None
+
+
+def test_significance_option(app, captured):
+    app.calc_cami()
+    assert captured[-1]['n_surrogates'] == 0
+    app.significance.set(True)
+    app.n_surrogates.set('19')
+    app.calc_cami()
+    assert captured[-1]['n_surrogates'] == 19
+
+
+def test_results_window_shows_p_values(app):
+    import tkinter
+    results = {'mutual_info': 0.1, 'cami_xy': 0.9, 'cami_yx': 0.01, 'te_xy': 0.8, 'te_yx': 0.0,
+               'directionality': 0.89, 'p_values': {'mutual_info': 0.5, 'cami_xy': 0.01, 'cami_yx': 0.6,
+                                                     'te_xy': 0.01, 'te_yx': 0.7}}
+    window = app.show_results(results)
+    texts = ' '.join(str(w.cget('text')) for w in window.winfo_children() if 'text' in w.keys())
+    assert 'p = 0.010' in texts and 'p = 0.700' in texts
+    assert isinstance(window, tkinter.Toplevel)
+
+
+def test_export_results(app, monkeypatch, tmp_path):
+    import numpy as np
+    import pandas as pd
+    import cami_gui
+    path = tmp_path / 'out.csv'
+    monkeypatch.setattr(cami_gui.fd, 'asksaveasfilename', lambda **kw: str(path))
+    monkeypatch.setattr(app, 'show_results', lambda results: None)
+    x = np.random.default_rng(0).random(500)
+    app.series['x'], app.series['y'] = x, np.roll(x, 1)
+    app.calc_cami()
+    app.export_results()
+    assert pd.read_csv(path)['measure'].tolist()[:2] == ['mutual_info', 'cami_xy']
